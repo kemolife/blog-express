@@ -1,6 +1,7 @@
 var http = require("http");
 var express = require('express');
 var passport = require("passport");
+var LocalStrategy = require("passport-local").Strategy;
 var path = require('path');
 var favicon = require('serve-favicon');
 var logger = require('morgan');
@@ -12,6 +13,7 @@ var session = require("express-session");
 var flash = require("connect-flash");
 var routes = require('./routes/routes');
 var expressController = require("express-controller");
+var User = require("./app/models/user");
 // configuration
 mongoose.connect(config.database);
 var app = express();
@@ -43,24 +45,56 @@ app.use(passport.session());
 // =================================================
 
 
-// // post auth
-// app.post('/login', passport.authenticate('local', {
-//     failureRedirect: '/login',
-//     failureFlash: true }), function(req, res) {
-//     if (req.body.remember) {
-//         req.session.cookie.maxAge = 1000 * 60 * 3;
-//     } else {
-//         req.session.cookie.expires = false;
-//     }
-//     res.redirect("/admin");
-// });
+// serialize user
+passport.serializeUser(function(user, done) {
+    done(null, user.id);
+});
+// deserialize user
+passport.deserializeUser(function(id, done) {
+    User.findById({ _id: id }, function(err, user) {
+        done(err, user);
+    });
+});
 
-// catch 404 and forward to error handler
-// app.use(function(req, res, next) {
-//   var err = new Error('Not Found');
-//   err.status = 404;
-//   next(err);
-// });
+// passport local strategy
+passport.use(new LocalStrategy({
+        usernameField: 'name',
+        passwordField: 'password'
+    },
+    function(name, password, done) {
+        User.findOne({ name: name }, function (err, user) {
+
+            if (err) { return done(err); }
+
+            if ( ! user) {
+                return done(null, false, { message: "Name is not correct" });
+            }
+            if( ! user.admin) {
+                return done(null, false, { message: "User is not admin" });
+            }
+
+            user.validPassword(password, function(err, data) {
+                if(err) return done(err);
+
+                if( ! data){
+                    return done(null, false, { message: "password is not correct"} );
+                }
+
+                return done(null, user);
+            });
+        });
+    }
+));
+app.post('/login', passport.authenticate('local', {
+    failureRedirect: '/login',
+    failureFlash: true }), function(req, res) {
+    if (req.body.remember) {
+        req.session.cookie.maxAge = 1000 * 60 * 3;
+    } else {
+        req.session.cookie.expires = false;
+    }
+    res.redirect("/");
+});
 
 // error handler
 app.use(function(err, req, res, next) {
